@@ -177,13 +177,20 @@
           else {
             pivot.rotation[axis] = targetAngle;
             cubesToRotate.forEach(cube => {
+              // Convert cube position from pivot space back to rubiksCube space
               tempVec.copy(cube.position);
               rubiksCube.worldToLocal(pivot.localToWorld(tempVec));
-              cube.position.copy(tempVec);
+              // Update cube's logical coordinates and quaternion
               cube.userData.cubeCoords = rotateCoord(cube.userData.cubeCoords, axis, targetAngle);
               tempQuat.setFromAxisAngle(axisVectors[axis], targetAngle);
               cube.userData.cubeQuat.multiplyQuaternions(tempQuat, cube.userData.cubeQuat);
               cube.quaternion.copy(cube.userData.cubeQuat);
+              // Snap cube position exactly based on its logical coordinates
+              cube.position.set(
+                cube.userData.cubeCoords.x * (cubeSize + gap),
+                cube.userData.cubeCoords.y * (cubeSize + gap),
+                cube.userData.cubeCoords.z * (cubeSize + gap)
+              );
               rubiksCube.add(cube);
             });
             rubiksCube.remove(pivot);
