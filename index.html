@@ -249,8 +249,6 @@
       let previousPos = { x: 0, y: 0 };
       // Store momentum as rotation increments along x and y axes
       let dragMomentum = { x: 0, y: 0 };
-      // Flag to indicate that the cube's transformation needs baking
-      let needsBaking = false;
 
       const hoverRaycaster = new THREE.Raycaster();
       const clickRaycaster = new THREE.Raycaster();
@@ -263,32 +261,10 @@
         isBouncing = true;
       };
 
-      // Function to bake the rubiksCube's transformation into its children
-      const bakeCubeRotation = () => {
-        // Update world matrices
-        rubiksCube.updateMatrixWorld(true);
-        // For each child, set its position and rotation based on its world transform
-        rubiksCube.children.forEach(child => {
-          if(child.type === "Mesh"){
-            const worldPos = new THREE.Vector3();
-            const worldQuat = new THREE.Quaternion();
-            child.getWorldPosition(worldPos);
-            child.getWorldQuaternion(worldQuat);
-            child.position.copy(worldPos);
-            child.quaternion.copy(worldQuat);
-          }
-        });
-        // Reset the group's transformation
-        rubiksCube.position.set(0, 0, 0);
-        rubiksCube.rotation.set(0, 0, 0);
-        rubiksCube.updateMatrixWorld(true);
-        needsBaking = false;
-      };
-
       const animateScene = () => {
         requestAnimationFrame(animateScene);
 
-        // Apply momentum if not dragging using world-axis rotations
+        // Apply momentum if not dragging using the same world-axis rotations
         if (!sliceRotating && !isDragging) {
           if (Math.abs(dragMomentum.x) > 0.0001 || Math.abs(dragMomentum.y) > 0.0001) {
             rubiksCube.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), dragMomentum.x);
@@ -298,8 +274,6 @@
           } else {
             // Default slow rotation when idle
             rubiksCube.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.005);
-            // Once momentum has decayed, bake the transform to maintain alignment
-            if(needsBaking) bakeCubeRotation();
           }
         }
 
@@ -350,12 +324,8 @@
         previousPos = { x: e.clientX, y: e.clientY };
         dragDistance = 0;
         hasDragged = false;
-        needsBaking = true;
       });
-      window.addEventListener('mouseup', () => { 
-        isDragging = false; 
-        // Let momentum decay and then the animateScene will bake the transform
-      }, { passive: true });
+      window.addEventListener('mouseup', () => { isDragging = false; }, { passive: true });
       window.addEventListener('wheel', e => {
         e.preventDefault();
         const zoomStep = 0.5;
@@ -399,7 +369,6 @@
           dragDistance = 0;
           hasDragged = false;
           lastPinchDistance = null;
-          needsBaking = true;
           e.preventDefault();
         } else if (e.touches.length === 2) {
           isDragging = false;
