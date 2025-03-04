@@ -242,7 +242,9 @@
     }
 
     /* =================== Randomize Cube (Scramble) =================== */
+    let isRandomizing = false;
     function randomizeCube() {
+      isRandomizing = true;
       const movesSet = ["U","U'","R","R'","F","F'","L","L'","D","D'","B","B'"];
       const scrambleCount = 20;
       const scrambleMoves = [];
@@ -253,6 +255,8 @@
       function applyScramble(index) {
         if(index < scrambleMoves.length) {
           applyMove(scrambleMoves[index], () => { applyScramble(index+1); });
+        } else {
+          isRandomizing = false;
         }
       }
       applyScramble(0);
@@ -379,7 +383,8 @@
     /* =================== Click Event Handler =================== */
     window.addEventListener('click', onMouseClick, false);
     function onMouseClick(event) {
-      if (sliceRotating || hasDragged) return;
+      // Ignore clicks if a slice is already rotating, the user is dragging, or if the cube is currently randomizing
+      if (sliceRotating || hasDragged || isRandomizing) return;
       triggerZoomBounce();
       computeUnits++;
       updateComputeDisplay(computeUnits);
