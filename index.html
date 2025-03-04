@@ -66,7 +66,10 @@
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x000000);
       const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
-      camera.position.set(6, 6, 6);
+      // Start more zoomed out by setting the initial zoom to MAX_ZOOM (15)
+      const MAX_ZOOM = 15, MIN_ZOOM = 8;
+      const initialZoom = MAX_ZOOM;
+      camera.position.copy(new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(initialZoom));
       camera.lookAt(0, 0, 0);
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setPixelRatio(window.devicePixelRatio);
@@ -85,7 +88,6 @@
       // Camera Zoom & Direction
       const cameraDirection = camera.position.clone().normalize(); // Fixed direction
       let targetZoom = camera.position.length(), cameraZoomMomentum = 0;
-      const MIN_ZOOM = 8, MAX_ZOOM = 15;
       let zoomBounceStartTime = 0, isBouncing = false, baseZoom = targetZoom;
       const zoomBounceDuration = 150, bounceDelta = 0.5, hoverZoomOffset = 0.5;
 
@@ -321,7 +323,6 @@
         const zoomDelta = effectiveTargetZoom - currentZoom;
         cameraZoomMomentum = (cameraZoomMomentum + zoomDelta * 0.1) * 0.9;
         const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentZoom + cameraZoomMomentum));
-        // Directly copy multiplied cameraDirection to reduce clone calls
         camera.position.copy(cameraDirection).multiplyScalar(newZoom);
         renderer.render(scene, camera);
       };
@@ -329,7 +330,7 @@
 
       // --- Input Event Handlers ---
       const onMove = (clientX, clientY) => {
-        if (isDragging) {
+        if (isDragging && lastPinchDistance === null) {
           const deltaX = clientX - previousPos.x;
           const deltaY = clientY - previousPos.y;
           const rotationSpeed = 0.005;
@@ -346,11 +347,14 @@
         }
       };
 
+      // Variable to track pinch zoom distance
+      let lastPinchDistance = null;
+
       window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY), { passive: true });
       window.addEventListener('mousedown', e => {
         isDragging = true;
         previousPos = { x: e.clientX, y: e.clientY };
-        dragDistance = 0; 
+        dragDistance = 0;
         hasDragged = false;
       });
       window.addEventListener('mouseup', () => { isDragging = false; }, { passive: true });
@@ -396,27 +400,52 @@
         }
       }, { passive: true });
 
-      // Touch events (simulate mouse events)
+      // Touch events (simulate mouse events and handle pinch zoom)
       window.addEventListener('touchstart', e => {
         if (e.touches.length === 1) {
           isDragging = true;
-          const touch = e.touches[0];
-          previousPos = { x: touch.clientX, y: touch.clientY };
-          dragDistance = 0; 
+          previousPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          dragDistance = 0;
           hasDragged = false;
+          lastPinchDistance = null;
+          e.preventDefault();
+        } else if (e.touches.length === 2) {
+          // Pinch zoom start
+          isDragging = false;
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          lastPinchDistance = Math.hypot(dx, dy);
           e.preventDefault();
         }
       }, { passive: false });
+
       window.addEventListener('touchmove', e => {
-        if (isDragging && e.touches.length === 1) {
-          const touch = e.touches[0];
-          onMove(touch.clientX, touch.clientY);
+        if (e.touches.length === 1 && isDragging) {
+          onMove(e.touches[0].clientX, e.touches[0].clientY);
+          e.preventDefault();
+        } else if (e.touches.length === 2) {
+          // Handle pinch zoom
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const currentDistance = Math.hypot(dx, dy);
+          if (lastPinchDistance !== null) {
+            // Adjust targetZoom based on pinch movement
+            const pinchDiff = lastPinchDistance - currentDistance;
+            // Sensitivity factor for pinch zoom
+            const zoomFactor = 0.02;
+            targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom + pinchDiff * zoomFactor));
+          }
+          lastPinchDistance = currentDistance;
           e.preventDefault();
         }
       }, { passive: false });
+
       window.addEventListener('touchend', e => {
+        if (e.touches.length < 2) {
+          lastPinchDistance = null;
+        }
         if (e.touches.length === 0) {
-          if (!hasDragged) {
+          if (!hasDragged && lastPinchDistance === null) {
             const simulatedClick = new MouseEvent("click", {
               clientX: previousPos.x,
               clientY: previousPos.y,
@@ -429,7 +458,8 @@
           e.preventDefault();
         }
       }, { passive: false });
-      window.addEventListener('touchcancel', e => { isDragging = false; e.preventDefault(); }, { passive: false });
+
+      window.addEventListener('touchcancel', e => { isDragging = false; lastPinchDistance = null; e.preventDefault(); }, { passive: false });
 
       // Debounce resize event for performance
       let resizeTimeout;
