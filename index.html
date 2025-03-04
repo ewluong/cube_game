@@ -22,9 +22,11 @@
       user-select: none;
       pointer-events: none;
     }
-    /* Button styling */
-    .button {
+    /* Randomize button styling */
+    #randomizeButton {
       position: absolute;
+      bottom: 20px;
+      left: 20px;
       font-family: 'Courier New', Courier, monospace;
       font-size: 20px;
       color: #0f0;
@@ -35,23 +37,13 @@
       text-shadow: 0 0 5px #0f0;
       user-select: none;
     }
-    #randomizeButton {
-      bottom: 20px;
-      left: 20px;
-    }
-    #solveButton {
-      bottom: 20px;
-      left: 180px;
-    }
   </style>
 </head>
 <body>
   <!-- Compute display element -->
   <div id="computeDisplay">COMPUTE: 0</div>
-  <!-- Randomize and Solve buttons -->
-  <div id="randomizeButton" class="button">RANDOMIZE</div>
-  <div id="solveButton" class="button">SOLVE</div>
-  
+  <!-- Randomize button -->
+  <div id="randomizeButton">RANDOMIZE</div>
   <!-- Three.js from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
@@ -249,45 +241,24 @@
       isBouncing = true;
     }
 
-    /* =================== Global Scramble History =================== */
-    let scrambleHistory = [];
-
     /* =================== Randomize Cube (Scramble) =================== */
     function randomizeCube() {
       const movesSet = ["U","U'","R","R'","F","F'","L","L'","D","D'","B","B'"];
       const scrambleCount = 20;
-      scrambleHistory = [];
+      const scrambleMoves = [];
       for(let i = 0; i < scrambleCount; i++) {
         const rand = Math.floor(Math.random() * movesSet.length);
-        scrambleHistory.push(movesSet[rand]);
+        scrambleMoves.push(movesSet[rand]);
       }
       function applyScramble(index) {
-        if(index < scrambleHistory.length) {
-          applyMove(scrambleHistory[index], () => { applyScramble(index+1); });
+        if(index < scrambleMoves.length) {
+          applyMove(scrambleMoves[index], () => { applyScramble(index+1); });
         }
       }
       applyScramble(0);
     }
     // Scramble on load after a short delay
     setTimeout(() => { randomizeCube(); }, 500);
-
-    /* =================== Invert Move Helper =================== */
-    function invertMove(move) {
-      return move.includes("'") ? move.replace("'", "") : move + "'";
-    }
-
-    /* =================== Solve Cube Function =================== */
-    function solveCube() {
-      if (scrambleHistory.length === 0) return;
-      // Compute the inverse sequence
-      const inverseMoves = scrambleHistory.slice().reverse().map(invertMove);
-      function applyInverse(index) {
-        if(index < inverseMoves.length) {
-          applyMove(inverseMoves[index], () => { applyInverse(index+1); });
-        }
-      }
-      applyInverse(0);
-    }
 
     /* =================== Apply Move Function =================== */
     function applyMove(move, callback) {
@@ -449,12 +420,6 @@
     const randomizeButton = document.getElementById("randomizeButton");
     randomizeButton.addEventListener("click", () => {
       randomizeCube();
-    });
-    
-    /* =================== Solve Button Handler =================== */
-    const solveButton = document.getElementById("solveButton");
-    solveButton.addEventListener("click", () => {
-      solveCube();
     });
 
     /* =================== Handle Window Resizing =================== */
