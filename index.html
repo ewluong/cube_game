@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cyberpunk Neon Rubik's Cube Clicker</title>
+  <style>
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background-color: #000; 
+    }
+    canvas { display: block; }
+    /* Compute display styling */
+    #computeDisplay {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 24px;
+      color: #0f0;
+      text-shadow: 0 0 5px #0f0, 0 0 10px #0f0;
+      user-select: none;
+      pointer-events: none;
+    }
+    /* Terminal menu styling (collapsible) */
+    #terminalMenu {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 20px;
+      color: #0f0;
+      background-color: rgba(0, 0, 0, 0.8);
+      border: 1px solid #0f0;
+      text-shadow: 0 0 5px #0f0;
+      user-select: none;
+      cursor: pointer;
+      overflow: hidden;
+      transition: width 0.3s ease, height 0.3s ease, padding 0.3s ease;
+      width: 60px;
+      height: 60px;
+      padding: 10px;
+    }
+    #terminalMenu:hover {
+      width: 250px;
+      height: auto;
+    }
+    #terminalMenu .collapsedLabel {
+      opacity: 1;
+      transition: opacity 0.3s ease;
+    }
+    #terminalMenu:hover .collapsedLabel {
+      opacity: 0;
+    }
+    #terminalMenu .fullMenu {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+    #terminalMenu:hover .fullMenu {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #terminalMenu .fullMenu h2 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+    }
+    #terminalMenu .fullMenu ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    #terminalMenu .fullMenu li {
+      cursor: pointer;
+      margin: 5px 0;
+    }
+    #terminalMenu .fullMenu li.selected {
+      color: #ff0;
+      text-shadow: 0 0 10px #ff0;
+    }
+    /* Randomize button styling */
+    #randomizeButton {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 20px;
+      color: #0f0;
+      background-color: rgba(0, 0, 0, 0.8);
+      border: 1px solid #0f0;
+      padding: 10px;
+      cursor: pointer;
+      text-shadow: 0 0 5px #0f0;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Compute display element -->
+  <div id="computeDisplay">COMPUTE: 0</div>
+  <!-- Terminal menu element -->
+  <div id="terminalMenu">
+    <span class="collapsedLabel">ALGO</span>
+    <div class="fullMenu">
+      <h2>ALGORITHMS</h2>
+      <ul id="algorithmList"></ul>
+    </div>
+  </div>
+  <!-- Randomize button -->
+  <div id="randomizeButton">RANDOMIZE</div>
+  <!-- Three.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    /* =================== Compute Counter & Typewriter Effect =================== */
+    let computeUnits = 0;
+    let currentDisplayedNumber = "0";
+    const computePrefix = "COMPUTE: ";
+    function typeWriterEffect(element, text, callback) {
+      let index = 0;
+      function typeNext() {
+        if (index < text.length) {
+          element.innerText += text.charAt(index);
+          index++;
+          setTimeout(typeNext, 50);
+        } else if (callback) {
+          callback();
+        }
+      }
+      typeNext();
+    }
+    function updateComputeDisplay(newValue) {
+      const computeDisplay = document.getElementById("computeDisplay");
+      const newStr = newValue.toString();
+      if(newStr.length === 1) {
+        computeDisplay.innerText = computePrefix;
+        typeWriterEffect(computeDisplay, newStr, () => { currentDisplayedNumber = newStr; });
+      } else {
+        if(currentDisplayedNumber.length === newStr.length) {
+          let fixedPart = newStr.slice(0, -1);
+          let newDigit = newStr.slice(-1);
+          computeDisplay.innerText = computePrefix + fixedPart;
+          typeWriterEffect(computeDisplay, newDigit, () => { currentDisplayedNumber = newStr; });
+        } else {
+          computeDisplay.innerText = computePrefix;
+          typeWriterEffect(computeDisplay, newStr, () => { currentDisplayedNumber = newStr; });
+        }
+      }
+    }
+
+    /* =================== Terminal Menu Setup =================== */
+    // We now offer "Inverse" algorithm to solve any cube randomized by our button.
+    const algorithms = ["Inverse", "CFOP", "Roux", "ZZ", "Petrus", "Advanced Solving"];
+    let selectedAlgorithm = "Inverse"; // default: inverse-scramble solver
+    const algorithmList = document.getElementById("algorithmList");
+    algorithms.forEach((algo, index) => {
+      const li = document.createElement("li");
+      li.innerText = algo;
+      li.dataset.algo = algo;
+      if(index === 0) { li.classList.add("selected"); }
+      li.addEventListener("click", () => {
+        selectedAlgorithm = algo;
+        document.querySelectorAll("#algorithmList li").forEach(item => {
+          item.classList.remove("selected");
+        });
+        li.classList.add("selected");
+      });
+      algorithmList.appendChild(li);
+    });
+
+    /* =================== Easing Function for Slice Rotation (Overshoot) =================== */
+    function easeOutBack(t, s = 1.70158) {
+      t = t - 1;
+      return t * t * ((s + 1) * t + s) + 1;
+    }
+
+    /* =================== Helper: Rotate Logical Coordinates =================== */
+    function rotateCoord(coord, axis, angle) {
+      const cos = Math.round(Math.cos(angle));
+      const sin = Math.round(Math.sin(angle));
+      const { x, y, z } = coord;
+      if (axis === 'x') {
+        return { x: x, y: y * cos - z * sin, z: y * sin + z * cos };
+      } else if (axis === 'y') {
+        return { x: x * cos + z * sin, y: y, z: -x * sin + z * cos };
+      } else if (axis === 'z') {
+        return { x: x * cos - y * sin, y: x * sin + y * cos, z: z };
+      }
+    }
+
+    /* =================== Scene, Camera, Renderer Setup =================== */
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(6, 6, 6);
+    camera.lookAt(0, 0, 0);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    /* =================== Camera Zoom & Hover Variables =================== */
+    const cameraDirection = camera.position.clone().normalize();
+    let targetZoom = camera.position.length();
+    let cameraZoomMomentum = 0;
+    const MIN_ZOOM = 8;
+    const MAX_ZOOM = 15;
+    let zoomBounceStartTime = 0;
+    const zoomBounceDuration = 150;
+    const bounceDelta = 0.5;
+    let isBouncing = false;
+    let baseZoom = targetZoom;
+    const hoverZoomOffset = 0.5;
+    let isHovered = false;
+    let hoverMouse = new THREE.Vector2(0, 0);
+
+    /* =================== Lighting =================== */
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+    scene.add(ambientLight);
+    const pointLight1 = new THREE.PointLight(0x00ffff, 1, 100);
+    pointLight1.position.set(10, 10, 10);
+    scene.add(pointLight1);
+    const pointLight2 = new THREE.PointLight(0xff00ff, 0.8, 100);
+    pointLight2.position.set(-10, -10, -10);
+    scene.add(pointLight2);
+
+    /* =================== Main Rubik's Cube Group =================== */
+    const rubiksCube = new THREE.Group();
+    scene.add(rubiksCube);
+
+    /* =================== Cube Configuration =================== */
+    const cubeSize = 0.95;
+    const gap = 0.1;
+    const COLORS = {
+      right: new THREE.Color(0xFFF700),
+      left: new THREE.Color(0x9B30FF),
+      top: new THREE.Color(0x00FFFC),
+      bottom: new THREE.Color(0xFF00A2),
+      front: new THREE.Color(0x00FF00),
+      back: new THREE.Color(0xFF2400)
+    };
+
+    function createCube(x, y, z) {
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const materials = [];
+      materials.push(x === 1 ? new THREE.MeshStandardMaterial({ color: COLORS.right, emissive: COLORS.right, emissiveIntensity: 0.0 }) : new THREE.MeshStandardMaterial({ color: 0x111111 }));
+      materials.push(x === -1 ? new THREE.MeshStandardMaterial({ color: COLORS.left, emissive: COLORS.left, emissiveIntensity: 0.0 }) : new THREE.MeshStandardMaterial({ color: 0x111111 }));
+      materials.push(y === 1 ? new THREE.MeshStandardMaterial({ color: COLORS.top, emissive: COLORS.top, emissiveIntensity: 0.0 }) : new THREE.MeshStandardMaterial({ color: 0x111111 }));
+      materials.push(y === -1 ? new THREE.MeshStandardMaterial({ color: COLORS.bottom, emissive: COLORS.bottom, emissiveIntensity: 0.0 }) : new THREE.MeshStandardMaterial({ color: 0x111111 }));
+      materials.push(z === 1 ? new THREE.MeshStandardMaterial({ color: COLORS.front, emissive: COLORS.front, emissiveIntensity: 0.0 }) : new THREE.MeshStandardMaterial({ color: 0x111111 }));
+      materials.push(z === -1 ? new THREE.MeshStandardMaterial({ color: COLORS.back, emissive: COLORS.back, emissiveIntensity: 0.0 }) : new THREE.MeshStandardMaterial({ color: 0x111111 }));
+      const cube = new THREE.Mesh(geometry, materials);
+      cube.position.set(
+        x * (cubeSize + gap),
+        y * (cubeSize + gap),
+        z * (cubeSize + gap)
+      );
+      cube.userData.cubeCoords = { x: x, y: y, z: z };
+      cube.userData.cubeQuat = cube.quaternion.clone();
+      return cube;
+    }
+
+    for (let x = -1; x <= 1; x++) {
+      for (let y = -1; y <= 1; y++) {
+        for (let z = -1; z <= 1; z++) {
+          rubiksCube.add(createCube(x, y, z));
+        }
+      }
+    }
+
+    /* =================== Raycasters =================== */
+    const hoverRaycaster = new THREE.Raycaster();
+    const clickRaycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    /* =================== Drag & Momentum Variables =================== */
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    let dragMomentumX = 0, dragMomentumY = 0;
+    const dragThreshold = 5;
+    let dragDistance = 0;
+    let hasDragged = false;
+
+    window.addEventListener('mousemove', (event) => {
+      if (isDragging) {
+        const deltaMove = { 
+          x: event.clientX - previousMousePosition.x, 
+          y: event.clientY - previousMousePosition.y 
+        };
+        const rotationSpeed = 0.005;
+        dragDistance += Math.sqrt(deltaMove.x**2 + deltaMove.y**2);
+        if (dragDistance > dragThreshold) {
+          hasDragged = true;
+        }
+        rubiksCube.rotation.y += deltaMove.x * rotationSpeed;
+        rubiksCube.rotation.x += deltaMove.y * rotationSpeed;
+        dragMomentumY = deltaMove.x * rotationSpeed;
+        dragMomentumX = deltaMove.y * rotationSpeed;
+        previousMousePosition = { x: event.clientX, y: event.clientY };
+      } else {
+        hoverMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        hoverMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      }
+    });
+    window.addEventListener('mousedown', (event) => { 
+      isDragging = true; 
+      previousMousePosition = { x: event.clientX, y: event.clientY };
+      dragDistance = 0;
+      hasDragged = false;
+    });
+    window.addEventListener('mouseup', (event) => { 
+      isDragging = false; 
+    });
+    window.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      const zoomStep = 0.5;
+      if (event.deltaY < 0) { 
+        targetZoom = Math.max(MIN_ZOOM, targetZoom - zoomStep);
+      } else { 
+        targetZoom = Math.min(MAX_ZOOM, targetZoom + zoomStep);
+      }
+    }, { passive: false });
+
+    function triggerZoomBounce() {
+      zoomBounceStartTime = performance.now();
+      baseZoom = targetZoom;
+      isBouncing = true;
+    }
+
+    /* =================== Inverse Solver Setup =================== */
+    // We'll solve any scramble by simply inverting the moves that were used to randomize.
+    let scrambleMoves = [];
+    let inverseMoves = [];
+    const movesSet = ["U","U'","R","R'","F","F'","L","L'","D","D'","B","B'"];
+    function generateScramble() {
+      scrambleMoves = [];
+      const scrambleCount = 20; // Use 20 random moves for a truly random scramble.
+      for(let i = 0; i < scrambleCount; i++) {
+        const rand = Math.floor(Math.random() * movesSet.length);
+        scrambleMoves.push(movesSet[rand]);
+      }
+    }
+    function computeInverseMoves() {
+      inverseMoves = scrambleMoves.map(move => move.endsWith("'") ? move.slice(0,-1) : move + "'").reverse();
+    }
+    function scrambleCube(index) {
+      if(index < scrambleMoves.length) {
+        applyMove(scrambleMoves[index], () => {
+          scrambleCube(index+1);
+        });
+      } else {
+        computeInverseMoves();
+      }
+    }
+    function randomizeCube() {
+      generateScramble();
+      scrambleCube(0);
+    }
+    // Scramble on load after a short delay
+    setTimeout(() => { randomizeCube(); }, 500);
+
+    /* =================== Apply Move Function =================== */
+    function applyMove(move, callback) {
+      let axis, sliceValue, targetAngle;
+      if (move === "U") { axis = "y"; sliceValue = 1; targetAngle = -Math.PI/2; }
+      else if (move === "U'") { axis = "y"; sliceValue = 1; targetAngle = Math.PI/2; }
+      else if (move === "D") { axis = "y"; sliceValue = -1; targetAngle = Math.PI/2; }
+      else if (move === "D'") { axis = "y"; sliceValue = -1; targetAngle = -Math.PI/2; }
+      else if (move === "R") { axis = "x"; sliceValue = 1; targetAngle = -Math.PI/2; }
+      else if (move === "R'") { axis = "x"; sliceValue = 1; targetAngle = Math.PI/2; }
+      else if (move === "L") { axis = "x"; sliceValue = -1; targetAngle = Math.PI/2; }
+      else if (move === "L'") { axis = "x"; sliceValue = -1; targetAngle = -Math.PI/2; }
+      else if (move === "F") { axis = "z"; sliceValue = 1; targetAngle = -Math.PI/2; }
+      else if (move === "F'") { axis = "z"; sliceValue = 1; targetAngle = Math.PI/2; }
+      else if (move === "B") { axis = "z"; sliceValue = -1; targetAngle = Math.PI/2; }
+      else if (move === "B'") { axis = "z"; sliceValue = -1; targetAngle = -Math.PI/2; }
+      else { if(callback) callback(); return; }
+      
+      let cubesToRotate = [];
+      rubiksCube.children.forEach(cube => {
+        const pos = cube.userData.cubeCoords;
+        if (Math.abs(pos[axis] - sliceValue) < 0.1) {
+          cubesToRotate.push(cube);
+        }
+      });
+      if(cubesToRotate.length === 0) { if(callback) callback(); return; }
+      
+      let pivotCenter = new THREE.Vector3();
+      if (axis === "x") { pivotCenter.set(sliceValue * (cubeSize + gap), 0, 0); }
+      else if (axis === "y") { pivotCenter.set(0, sliceValue * (cubeSize + gap), 0); }
+      else if (axis === "z") { pivotCenter.set(0, 0, sliceValue * (cubeSize + gap)); }
+      
+      const pivot = new THREE.Group();
+      pivot.position.copy(pivotCenter);
+      rubiksCube.add(pivot);
+      cubesToRotate.forEach(cube => {
+        cube.position.sub(pivot.position);
+        pivot.add(cube);
+      });
+      
+      const totalDuration = 300;
+      const startTime = performance.now();
+      function rotatePivot() {
+        const elapsed = performance.now() - startTime;
+        const progress = Math.min(elapsed / totalDuration, 1);
+        const easedProgress = easeOutBack(progress, 1.70158);
+        pivot.rotation[axis] = targetAngle * easedProgress;
+        renderer.render(scene, camera);
+        if (progress < 1) {
+          requestAnimationFrame(rotatePivot);
+        } else {
+          pivot.rotation[axis] = targetAngle;
+          cubesToRotate.forEach(cube => {
+            const worldPos = pivot.localToWorld(cube.position.clone());
+            rubiksCube.worldToLocal(worldPos);
+            cube.position.copy(worldPos);
+            const oldCoord = cube.userData.cubeCoords;
+            const newCoord = rotateCoord(oldCoord, axis, targetAngle);
+            cube.userData.cubeCoords = newCoord;
+            const axisVector = (axis === "x") ? new THREE.Vector3(1,0,0) :
+                                (axis === "y") ? new THREE.Vector3(0,1,0) :
+                                                 new THREE.Vector3(0,0,1);
+            const q = new THREE.Quaternion().setFromAxisAngle(axisVector, targetAngle);
+            cube.userData.cubeQuat = q.multiply(cube.userData.cubeQuat);
+            cube.quaternion.copy(cube.userData.cubeQuat);
+            rubiksCube.add(cube);
+          });
+          rubiksCube.remove(pivot);
+          if(callback) callback();
+        }
+      }
+      rotatePivot();
+    }
+
+    /* =================== Animation & Interaction Loop =================== */
+    let sliceRotating = false;
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      if (!sliceRotating && !isDragging) {
+        rubiksCube.rotation.x += dragMomentumX;
+        rubiksCube.rotation.y += dragMomentumY;
+        dragMomentumX *= 0.95;
+        dragMomentumY *= 0.95;
+        if (Math.abs(dragMomentumY) < 0.0001) {
+          rubiksCube.rotation.y += 0.005;
+        }
+      }
+      if (!isDragging) {
+        hoverRaycaster.setFromCamera(hoverMouse, camera);
+        const intersectsHover = hoverRaycaster.intersectObjects(rubiksCube.children, true);
+        isHovered = intersectsHover.length > 0;
+      } else {
+        isHovered = false;
+      }
+      if (isBouncing) {
+        const elapsed = performance.now() - zoomBounceStartTime;
+        const t = Math.min(elapsed / zoomBounceDuration, 1);
+        const bounceValue = bounceDelta * Math.sin(Math.PI * t);
+        targetZoom = baseZoom - bounceValue;
+        if (t === 1) {
+          isBouncing = false;
+          targetZoom = baseZoom;
+        }
+      }
+      const effectiveTargetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom - (isHovered ? hoverZoomOffset : 0)));
+      const currentZoom = camera.position.length();
+      const zoomDelta = effectiveTargetZoom - currentZoom;
+      cameraZoomMomentum += zoomDelta * 0.1;
+      cameraZoomMomentum *= 0.9;
+      let newZoom = currentZoom + cameraZoomMomentum;
+      newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+      camera.position.copy(cameraDirection.clone().multiplyScalar(newZoom));
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    /* =================== Click Event Handler =================== */
+    window.addEventListener('click', onMouseClick, false);
+    function onMouseClick(event) {
+      if (sliceRotating || hasDragged) return;
+      triggerZoomBounce();
+      computeUnits++;
+      updateComputeDisplay(computeUnits);
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      clickRaycaster.setFromCamera(mouse, camera);
+      if(selectedAlgorithm === "Inverse") {
+        // Inverse solver: apply next move from inverseMoves array.
+        if(inverseMoves.length > 0) {
+          const nextMove = inverseMoves.shift();
+          sliceRotating = true;
+          applyMove(nextMove, () => { sliceRotating = false; });
+        }
+      } else {
+        const intersects = clickRaycaster.intersectObjects(rubiksCube.children);
+        if (intersects.length > 0) {
+          const intersect = intersects[0];
+          const faceId = Math.floor(intersect.faceIndex / 2);
+          let axis, sliceValue, targetAngle;
+          switch (faceId) {
+            case 0: axis = 'x'; sliceValue = 1; targetAngle = -Math.PI/2; break;
+            case 1: axis = 'x'; sliceValue = -1; targetAngle = Math.PI/2; break;
+            case 2: axis = 'y'; sliceValue = 1; targetAngle = -Math.PI/2; break;
+            case 3: axis = 'y'; sliceValue = -1; targetAngle = Math.PI/2; break;
+            case 4: axis = 'z'; sliceValue = 1; targetAngle = -Math.PI/2; break;
+            case 5: axis = 'z'; sliceValue = -1; targetAngle = Math.PI/2; break;
+            default: return;
+          }
+          sliceRotating = true;
+          let moveStr = "";
+          if(axis==="x") {
+            moveStr = (sliceValue === 1) ? "R" : "L";
+            if(targetAngle > 0) { moveStr += "'"; }
+          } else if(axis==="y") {
+            moveStr = (sliceValue === 1) ? "U" : "D";
+            if(targetAngle > 0) { moveStr += "'"; }
+          } else if(axis==="z") {
+            moveStr = (sliceValue === 1) ? "F" : "B";
+            if(targetAngle > 0) { moveStr += "'"; }
+          }
+          applyMove(moveStr, () => { sliceRotating = false; });
+        }
+      }
+    }
+
+    /* =================== Randomize Button Handler =================== */
+    const randomizeButton = document.getElementById("randomizeButton");
+    randomizeButton.addEventListener("click", () => {
+      randomizeCube();
+    });
+
+    /* =================== Handle Window Resizing =================== */
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
