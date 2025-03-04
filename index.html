@@ -22,92 +22,36 @@
       user-select: none;
       pointer-events: none;
     }
-    /* Terminal menu styling (collapsible) */
-    #terminalMenu {
+    /* Button styling */
+    .button {
       position: absolute;
-      top: 20px;
-      right: 20px;
       font-family: 'Courier New', Courier, monospace;
       font-size: 20px;
       color: #0f0;
       background-color: rgba(0, 0, 0, 0.8);
       border: 1px solid #0f0;
+      padding: 10px;
+      cursor: pointer;
       text-shadow: 0 0 5px #0f0;
       user-select: none;
-      cursor: pointer;
-      overflow: hidden;
-      transition: width 0.3s ease, height 0.3s ease, padding 0.3s ease;
-      width: 60px;
-      height: 60px;
-      padding: 10px;
     }
-    #terminalMenu:hover {
-      width: 250px;
-      height: auto;
-    }
-    #terminalMenu .collapsedLabel {
-      opacity: 1;
-      transition: opacity 0.3s ease;
-    }
-    #terminalMenu:hover .collapsedLabel {
-      opacity: 0;
-    }
-    #terminalMenu .fullMenu {
-      opacity: 0;
-      transition: opacity 0.3s ease;
-      pointer-events: none;
-    }
-    #terminalMenu:hover .fullMenu {
-      opacity: 1;
-      pointer-events: auto;
-    }
-    #terminalMenu .fullMenu h2 {
-      margin: 0 0 10px 0;
-      font-size: 24px;
-    }
-    #terminalMenu .fullMenu ul {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-    #terminalMenu .fullMenu li {
-      cursor: pointer;
-      margin: 5px 0;
-    }
-    #terminalMenu .fullMenu li.selected {
-      color: #ff0;
-      text-shadow: 0 0 10px #ff0;
-    }
-    /* Randomize button styling */
     #randomizeButton {
-      position: absolute;
       bottom: 20px;
       left: 20px;
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 20px;
-      color: #0f0;
-      background-color: rgba(0, 0, 0, 0.8);
-      border: 1px solid #0f0;
-      padding: 10px;
-      cursor: pointer;
-      text-shadow: 0 0 5px #0f0;
-      user-select: none;
+    }
+    #solveButton {
+      bottom: 20px;
+      left: 180px;
     }
   </style>
 </head>
 <body>
   <!-- Compute display element -->
   <div id="computeDisplay">COMPUTE: 0</div>
-  <!-- Terminal menu element -->
-  <div id="terminalMenu">
-    <span class="collapsedLabel">ALGO</span>
-    <div class="fullMenu">
-      <h2>ALGORITHMS</h2>
-      <ul id="algorithmList"></ul>
-    </div>
-  </div>
-  <!-- Randomize button -->
-  <div id="randomizeButton">RANDOMIZE</div>
+  <!-- Randomize and Solve buttons -->
+  <div id="randomizeButton" class="button">RANDOMIZE</div>
+  <div id="solveButton" class="button">SOLVE</div>
+  
   <!-- Three.js from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
@@ -146,26 +90,6 @@
         }
       }
     }
-
-    /* =================== Terminal Menu Setup =================== */
-    // We now offer "Inverse" algorithm to solve any cube randomized by our button.
-    const algorithms = ["Inverse", "CFOP", "Roux", "ZZ", "Petrus", "Advanced Solving"];
-    let selectedAlgorithm = "Inverse"; // default: inverse-scramble solver
-    const algorithmList = document.getElementById("algorithmList");
-    algorithms.forEach((algo, index) => {
-      const li = document.createElement("li");
-      li.innerText = algo;
-      li.dataset.algo = algo;
-      if(index === 0) { li.classList.add("selected"); }
-      li.addEventListener("click", () => {
-        selectedAlgorithm = algo;
-        document.querySelectorAll("#algorithmList li").forEach(item => {
-          item.classList.remove("selected");
-        });
-        li.classList.add("selected");
-      });
-      algorithmList.appendChild(li);
-    });
 
     /* =================== Easing Function for Slice Rotation (Overshoot) =================== */
     function easeOutBack(t, s = 1.70158) {
@@ -325,37 +249,45 @@
       isBouncing = true;
     }
 
-    /* =================== Inverse Solver Setup =================== */
-    // We'll solve any scramble by simply inverting the moves that were used to randomize.
-    let scrambleMoves = [];
-    let inverseMoves = [];
-    const movesSet = ["U","U'","R","R'","F","F'","L","L'","D","D'","B","B'"];
-    function generateScramble() {
-      scrambleMoves = [];
-      const scrambleCount = 20; // Use 20 random moves for a truly random scramble.
+    /* =================== Global Scramble History =================== */
+    let scrambleHistory = [];
+
+    /* =================== Randomize Cube (Scramble) =================== */
+    function randomizeCube() {
+      const movesSet = ["U","U'","R","R'","F","F'","L","L'","D","D'","B","B'"];
+      const scrambleCount = 20;
+      scrambleHistory = [];
       for(let i = 0; i < scrambleCount; i++) {
         const rand = Math.floor(Math.random() * movesSet.length);
-        scrambleMoves.push(movesSet[rand]);
+        scrambleHistory.push(movesSet[rand]);
       }
-    }
-    function computeInverseMoves() {
-      inverseMoves = scrambleMoves.map(move => move.endsWith("'") ? move.slice(0,-1) : move + "'").reverse();
-    }
-    function scrambleCube(index) {
-      if(index < scrambleMoves.length) {
-        applyMove(scrambleMoves[index], () => {
-          scrambleCube(index+1);
-        });
-      } else {
-        computeInverseMoves();
+      function applyScramble(index) {
+        if(index < scrambleHistory.length) {
+          applyMove(scrambleHistory[index], () => { applyScramble(index+1); });
+        }
       }
-    }
-    function randomizeCube() {
-      generateScramble();
-      scrambleCube(0);
+      applyScramble(0);
     }
     // Scramble on load after a short delay
     setTimeout(() => { randomizeCube(); }, 500);
+
+    /* =================== Invert Move Helper =================== */
+    function invertMove(move) {
+      return move.includes("'") ? move.replace("'", "") : move + "'";
+    }
+
+    /* =================== Solve Cube Function =================== */
+    function solveCube() {
+      if (scrambleHistory.length === 0) return;
+      // Compute the inverse sequence
+      const inverseMoves = scrambleHistory.slice().reverse().map(invertMove);
+      function applyInverse(index) {
+        if(index < inverseMoves.length) {
+          applyMove(inverseMoves[index], () => { applyInverse(index+1); });
+        }
+      }
+      applyInverse(0);
+    }
 
     /* =================== Apply Move Function =================== */
     function applyMove(move, callback) {
@@ -483,42 +415,33 @@
       mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
       clickRaycaster.setFromCamera(mouse, camera);
-      if(selectedAlgorithm === "Inverse") {
-        // Inverse solver: apply next move from inverseMoves array.
-        if(inverseMoves.length > 0) {
-          const nextMove = inverseMoves.shift();
-          sliceRotating = true;
-          applyMove(nextMove, () => { sliceRotating = false; });
+      const intersects = clickRaycaster.intersectObjects(rubiksCube.children);
+      if (intersects.length > 0) {
+        const intersect = intersects[0];
+        const faceId = Math.floor(intersect.faceIndex / 2);
+        let axis, sliceValue, targetAngle;
+        switch (faceId) {
+          case 0: axis = 'x'; sliceValue = 1; targetAngle = -Math.PI/2; break;
+          case 1: axis = 'x'; sliceValue = -1; targetAngle = Math.PI/2; break;
+          case 2: axis = 'y'; sliceValue = 1; targetAngle = -Math.PI/2; break;
+          case 3: axis = 'y'; sliceValue = -1; targetAngle = Math.PI/2; break;
+          case 4: axis = 'z'; sliceValue = 1; targetAngle = -Math.PI/2; break;
+          case 5: axis = 'z'; sliceValue = -1; targetAngle = Math.PI/2; break;
+          default: return;
         }
-      } else {
-        const intersects = clickRaycaster.intersectObjects(rubiksCube.children);
-        if (intersects.length > 0) {
-          const intersect = intersects[0];
-          const faceId = Math.floor(intersect.faceIndex / 2);
-          let axis, sliceValue, targetAngle;
-          switch (faceId) {
-            case 0: axis = 'x'; sliceValue = 1; targetAngle = -Math.PI/2; break;
-            case 1: axis = 'x'; sliceValue = -1; targetAngle = Math.PI/2; break;
-            case 2: axis = 'y'; sliceValue = 1; targetAngle = -Math.PI/2; break;
-            case 3: axis = 'y'; sliceValue = -1; targetAngle = Math.PI/2; break;
-            case 4: axis = 'z'; sliceValue = 1; targetAngle = -Math.PI/2; break;
-            case 5: axis = 'z'; sliceValue = -1; targetAngle = Math.PI/2; break;
-            default: return;
-          }
-          sliceRotating = true;
-          let moveStr = "";
-          if(axis==="x") {
-            moveStr = (sliceValue === 1) ? "R" : "L";
-            if(targetAngle > 0) { moveStr += "'"; }
-          } else if(axis==="y") {
-            moveStr = (sliceValue === 1) ? "U" : "D";
-            if(targetAngle > 0) { moveStr += "'"; }
-          } else if(axis==="z") {
-            moveStr = (sliceValue === 1) ? "F" : "B";
-            if(targetAngle > 0) { moveStr += "'"; }
-          }
-          applyMove(moveStr, () => { sliceRotating = false; });
+        sliceRotating = true;
+        let moveStr = "";
+        if(axis==="x") {
+          moveStr = (sliceValue === 1) ? "R" : "L";
+          if(targetAngle > 0) { moveStr += "'"; }
+        } else if(axis==="y") {
+          moveStr = (sliceValue === 1) ? "U" : "D";
+          if(targetAngle > 0) { moveStr += "'"; }
+        } else if(axis==="z") {
+          moveStr = (sliceValue === 1) ? "F" : "B";
+          if(targetAngle > 0) { moveStr += "'"; }
         }
+        applyMove(moveStr, () => { sliceRotating = false; });
       }
     }
 
@@ -526,6 +449,12 @@
     const randomizeButton = document.getElementById("randomizeButton");
     randomizeButton.addEventListener("click", () => {
       randomizeCube();
+    });
+    
+    /* =================== Solve Button Handler =================== */
+    const solveButton = document.getElementById("solveButton");
+    solveButton.addEventListener("click", () => {
+      solveCube();
     });
 
     /* =================== Handle Window Resizing =================== */
