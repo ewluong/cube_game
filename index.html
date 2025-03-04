@@ -128,6 +128,10 @@
       const tempQuat = new THREE.Quaternion();
       const axisVectors = { x: new THREE.Vector3(1,0,0), y: new THREE.Vector3(0,1,0), z: new THREE.Vector3(0,0,1) };
 
+      // Flags to disable input during animations
+      let sliceRotating = false, isRandomizing = false, isSolving = false;
+      const HALF_PI = Math.PI / 2;
+
       // Apply a move using pivot rotation
       const applyMove = (move, callback, record = true) => {
         let axis, sliceValue, targetAngle;
@@ -177,9 +181,6 @@
           else {
             pivot.rotation[axis] = targetAngle;
             cubesToRotate.forEach(cube => {
-              // Convert cube position from pivot space back to rubiksCube space
-              tempVec.copy(cube.position);
-              rubiksCube.worldToLocal(pivot.localToWorld(tempVec));
               // Update cube's logical coordinates and quaternion
               cube.userData.cubeCoords = rotateCoord(cube.userData.cubeCoords, axis, targetAngle);
               tempQuat.setFromAxisAngle(axisVectors[axis], targetAngle);
@@ -202,6 +203,7 @@
 
       // Randomize the cube with a scramble sequence
       const randomizeCube = callback => {
+        if(isSolving) return; // disable if solving
         isRandomizing = true;
         const movesSet = ["U", "U'", "R", "R'", "F", "F'", "L", "L'", "D", "D'", "B", "B'"];
         const scrambleMoves = Array.from({ length: 20 }, () =>
@@ -215,8 +217,8 @@
         applyScramble(0);
       };
 
-      // Explosion animation effect after solving
-      const explosionAnimation = () => {
+      // Explosion animation effect after solving, with callback when finished
+      const explosionAnimation = (callback) => {
         const explosionFactor = 2.5, explosionDuration = 500, springDuration = 1000;
         const startTime = performance.now();
         const animateExplosion = () => {
@@ -233,25 +235,28 @@
           });
           if (elapsed < explosionDuration + springDuration)
             requestAnimationFrame(animateExplosion);
+          else callback && callback();
         };
         animateExplosion();
       };
 
       // Solve the cube using inverse move history and trigger explosion
       const solveCube = () => {
-        if (isRandomizing) return;
+        if (isRandomizing || isSolving) return;
+        isSolving = true;
         const inverseMoves = moveHistory.map(inverseMove).reverse();
         const applyInverse = index => {
           if (index < inverseMoves.length)
             applyMove(inverseMoves[index], () => applyInverse(index + 1), false);
-          else { moveHistory.length = 0; explosionAnimation(); }
+          else { 
+            moveHistory.length = 0; 
+            explosionAnimation(() => { isSolving = false; });
+          }
         };
         applyInverse(0);
       };
 
       // --- Animation & Interaction ---
-      let sliceRotating = false, isRandomizing = false;
-      const HALF_PI = Math.PI / 2;
       let isDragging = false, dragDistance = 0, hasDragged = false;
       let previousPos = { x: 0, y: 0 };
       // Store momentum as rotation increments along x and y axes
@@ -271,7 +276,7 @@
       const animateScene = () => {
         requestAnimationFrame(animateScene);
 
-        // Apply momentum if not dragging using the same world-axis rotations
+        // Apply momentum if not dragging or during a slice rotation
         if (!sliceRotating && !isDragging) {
           if (Math.abs(dragMomentum.x) > 0.0001 || Math.abs(dragMomentum.y) > 0.0001) {
             rubiksCube.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), dragMomentum.x);
@@ -306,6 +311,7 @@
       // --- Input Event Handlers ---
       let lastPinchDistance = null;
       const onMove = (clientX, clientY) => {
+        if (isSolving) return; // ignore inputs while solving
         if (isDragging && lastPinchDistance === null) {
           const deltaX = clientX - previousPos.x,
                 deltaY = clientY - previousPos.y;
@@ -325,22 +331,24 @@
         }
       };
 
-      window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY), { passive: true });
-      window.addEventListener('mousedown', e => {
+      window.addEventListener('mousemove', e => { if(!isSolving) onMove(e.clientX, e.clientY); }, { passive: true });
+      window.addEventListener('mousedown', e => { 
+        if(isSolving) return;
         isDragging = true;
         previousPos = { x: e.clientX, y: e.clientY };
         dragDistance = 0;
         hasDragged = false;
       });
-      window.addEventListener('mouseup', () => { isDragging = false; }, { passive: true });
+      window.addEventListener('mouseup', () => { if(!isSolving) isDragging = false; }, { passive: true });
       window.addEventListener('wheel', e => {
+        if(isSolving) return;
         e.preventDefault();
         const zoomStep = 0.5;
         targetZoom = e.deltaY < 0 ? Math.max(MIN_ZOOM, targetZoom - zoomStep) : Math.min(MAX_ZOOM, targetZoom + zoomStep);
       }, { passive: false });
 
       window.addEventListener('click', e => {
-        if (sliceRotating || hasDragged || isRandomizing) return;
+        if (isSolving || sliceRotating || hasDragged || isRandomizing) return;
         triggerZoomBounce();
         mouse.x = (e.clientX / innerWidth) * 2 - 1;
         mouse.y = -(e.clientY / innerHeight) * 2 + 1;
@@ -370,6 +378,7 @@
 
       // Touch events: simulate mouse events and handle pinch zoom
       window.addEventListener('touchstart', e => {
+        if (isSolving) return;
         if (e.touches.length === 1) {
           isDragging = true;
           previousPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -387,6 +396,7 @@
       }, { passive: false });
 
       window.addEventListener('touchmove', e => {
+        if (isSolving) return;
         if (e.touches.length === 1 && isDragging) {
           onMove(e.touches[0].clientX, e.touches[0].clientY);
           e.preventDefault();
@@ -404,6 +414,7 @@
       }, { passive: false });
 
       window.addEventListener('touchend', e => {
+        if (isSolving) return;
         if (e.touches.length < 2) lastPinchDistance = null;
         if (e.touches.length === 0) {
           if (!hasDragged && lastPinchDistance === null) {
@@ -421,6 +432,7 @@
       }, { passive: false });
 
       window.addEventListener('touchcancel', e => {
+        if (isSolving) return;
         isDragging = false;
         lastPinchDistance = null;
         e.preventDefault();
